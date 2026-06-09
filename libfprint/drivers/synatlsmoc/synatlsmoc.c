@@ -106,7 +106,7 @@ G_DEFINE_TYPE (FpiDeviceSynaTlsMoc, fpi_device_synatlsmoc, FP_TYPE_DEVICE);
 // clang-format off
 static const FpIdEntry id_table[] = {
     /* the sensors commented out are untested, but should be suported */
-    // { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x00C9, },
+    { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x00C9, },
     // { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x00D1, },
     { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x00E7, },
     { .vid = SYNAPTICS_VENDOR_ID, .pid = 0x00FF, },
