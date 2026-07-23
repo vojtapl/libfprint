@@ -52,8 +52,6 @@
  * initialized in Windows */
 /* WARN: current implementation starts a new TLS session on each device open */
 
-#define DEBUG
-
 /* Needed for testing with libfprint examples they do not support storage of
  * pairing data */
 // #define USE_SAMPLE_PAIRING_DATA
