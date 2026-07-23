@@ -42,7 +42,7 @@
 #include "tls_session.h"
 #include "utils.h"
 
-#define DEBUG_SSL TRUE
+#define DEBUG_SSL FALSE
 
 #define RANDOM_SIZE 32
 #define MASTER_SECRET_SIZE 48
@@ -52,8 +52,6 @@
 #define MAX_KEY_BLOCK_SIZE 128
 #define CERTIFICATE_MAX_KEY_SIZE 68
 #define SIGNATURE_SIZE 256
-
-#define DEBUG_SSL TRUE
 
 #define RANDOM_SIZE 32
 #define MASTER_SECRET_SIZE 48
@@ -1788,9 +1786,6 @@ generate_hs_priv_key (EVP_PKEY **hs_privkey, GError **error)
    * 0xac, 0xb0, 0xef, 0x47, 0x9c, 0xae, 0x41, 0x40, 0xc7, 0xe8, 0xe2, 0x60,
    * 0xdb, 0x3f, 0x64, 0x2e, 0x35, 0xd4, 0x09, 0x9c, 0x01, 0xb3, 0x6a, 0x86};
    */
-  g_autofree char *privkey_k_str = bin2hex (privkey_k, ECC_KEY_SIZE);
-  fp_dbg ("Generated hs privkey k param: %s", privkey_k_str);
-
   g_autoptr (OSSL_PARAM_BLD) param_bld = OSSL_PARAM_BLD_new ();
   g_autoptr (BIGNUM) k_bn = BN_bin2bn (privkey_k, ECC_KEY_SIZE, NULL);
 

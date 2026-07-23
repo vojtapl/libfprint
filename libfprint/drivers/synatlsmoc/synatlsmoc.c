@@ -52,8 +52,6 @@
  * initialized in Windows */
 /* WARN: current implementation starts a new TLS session on each device open */
 
-#define DEBUG
-
 /* Needed for testing with libfprint examples they do not support storage of
  * pairing data */
 // #define USE_SAMPLE_PAIRING_DATA
@@ -109,7 +107,10 @@ static const FpIdEntry id_table[] = {
     { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x00C9, },
     // { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x00D1, },
     { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x00D8, },
-    { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x00E7, },
+    { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x00E7,
+      .driver_data = SYNATLSMOC_QUIRK_SKIP_IMAGE_METRICS |
+                     SYNATLSMOC_QUIRK_DISABLE_IDENTIFY |
+                     SYNATLSMOC_QUIRK_USE_CAPTURE_PARAM_12, },
     { .vid = SYNAPTICS_VENDOR_ID, .pid = 0x00FF, },
     // { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x0124, },
     // { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x0169, },
@@ -535,7 +536,7 @@ synatlsmoc_cmd_run_state (FpiSsm *ssm, FpDevice *device)
                                   data->length_in);
       fpi_usb_transfer_submit (
           g_steal_pointer (&transfer), SYNATLSMOC_USB_RECV_TIMEOUT,
-          fpi_device_get_cancellable (device), synatlsmoc_cmd_receive_cb, data);
+          NULL, synatlsmoc_cmd_receive_cb, data);
       break;
     }
 }
@@ -640,7 +641,7 @@ synatlsmoc_set_print_data (FpPrint *print, Db2Id template_id, FpUserId fp_user_i
 
   g_object_set (print, "description", user_id_safe, NULL);
 
-  GVariant *uid = g_variant_new_fixed_array (G_VARIANT_TYPE_BYTE, user_id_safe,
+  GVariant *uid = g_variant_new_fixed_array (G_VARIANT_TYPE_BYTE, fp_user_id,
                                              sizeof (FpUserId), 1);
   GVariant *tid = g_variant_new_fixed_array (G_VARIANT_TYPE_BYTE, template_id,
                                              sizeof (Db2Id), 1);
@@ -927,28 +928,32 @@ recv_frame_acquire (FpDevice *device, guint8 *buffer_in, gsize length_in, GError
   else if (status == RESPONSE_PROCESSING_FRAME)
     {
       gint *retry_idx;
+      gint retry_state;
       if (fpi_device_get_current_action (device) == FPI_DEVICE_ACTION_ENROLL)
         {
           EnrollData *enroll_ssm_data = fpi_ssm_get_data (self->task_ssm);
           retry_idx = &enroll_ssm_data->frame_acquire_retry_idx;
+          retry_state = ENROLL_SEND_FRAME_ACQUIRE;
         }
-      else if (fpi_device_get_current_action (device) == FPI_DEVICE_ACTION_VERIFY)
+      else if (fpi_device_get_current_action (device) == FPI_DEVICE_ACTION_VERIFY ||
+               fpi_device_get_current_action (device) == FPI_DEVICE_ACTION_IDENTIFY)
         {
           IdentifyVerifyData *identify_verify_ssm_data =
               fpi_ssm_get_data (self->task_ssm);
           retry_idx = &identify_verify_ssm_data->frame_acquire_retry_idx;
+          retry_state = IDENTIFY_VERIFY_SEND_FRAME_ACQUIRE;
         }
       else
         {
           g_assert_not_reached ();
         }
 
-      if (retry_idx > 0)
+      if (*retry_idx > 0)
         {
           *retry_idx -= 1;
           fp_dbg ("Received processing frame; current / max retries: %d/%d ....",
                   *retry_idx, FRAME_ACQUIRE_NUM_RETRIES);
-          fpi_ssm_jump_to_state (self->task_ssm, ENROLL_SEND_FRAME_ACQUIRE);
+          fpi_ssm_jump_to_state (self->task_ssm, retry_state);
         }
       else
         {
@@ -984,7 +989,9 @@ send_frame_acquire (FpiDeviceSynaTlsMoc *self, guint8 capture_flags)
   written &= fpi_byte_writer_put_uint8 (&writer, VCSFW_CMD_FRAME_ACQ);
   /* I was unable to find the meaning of these values, so I did not abstract
    * them into constants */
-  if (capture_flags == CAPTURE_FLAG_AUTH)
+  if (!(fpi_device_get_driver_data (FP_DEVICE (self)) &
+        SYNATLSMOC_QUIRK_USE_CAPTURE_PARAM_12) &&
+      capture_flags == CAPTURE_FLAG_AUTH)
     written &= fpi_byte_writer_put_uint32_le (&writer, 4116);
   else
     written &= fpi_byte_writer_put_uint32_le (&writer, 12);
@@ -3501,6 +3508,7 @@ static void
 synatlsmoc_close_ssm_done (FpiSsm *ssm, FpDevice *dev, GError *error)
 {
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (dev);
+  g_autoptr (GError) release_error = NULL;
 
   tls_session_free (self->session);
   self->session = NULL;
@@ -3508,7 +3516,9 @@ synatlsmoc_close_ssm_done (FpiSsm *ssm, FpDevice *dev, GError *error)
   // FIXME: causes errors
   // free_pairing_data(&self->pairing_data);
 
-  g_usb_device_release_interface (fpi_device_get_usb_device (dev), 0, 0, &error);
+  if (!g_usb_device_release_interface (fpi_device_get_usb_device (dev), 0, 0,
+                                       &release_error) && !error)
+    error = g_steal_pointer (&release_error);
 
   synatlsmoc_task_ssm_done (ssm, dev, error);
 
@@ -3870,6 +3880,12 @@ synatlsmoc_enroll_run_state (FpiSsm *ssm, FpDevice *device)
       break;
     case ENROLL_REPORT:
       {
+        if (fpi_ssm_get_error (ssm))
+          {
+            fpi_ssm_next_state (ssm);
+            break;
+          }
+
         synatlsmoc_set_print_data (data->print, data->template_id,
                                    data->fp_user_id, data->finger_id);
 
@@ -3890,15 +3906,15 @@ synatlsmoc_enroll (FpDevice *device)
 
   fpi_device_get_enroll_data (device, &data->print);
 
-  gchar *fp_user_id = fpi_print_generate_user_id (data->print);
-  memcpy (data->fp_user_id, fp_user_id, sizeof (FpUserId));
+  g_autofree gchar *fp_user_id = fpi_print_generate_user_id (data->print);
+  g_strlcpy (data->fp_user_id, fp_user_id, sizeof (data->fp_user_id));
 
   data->finger_id = fp_print_get_finger (data->print);
 
   g_assert (self->task_ssm == NULL);
   self->task_ssm =
       fpi_ssm_new_full (device, synatlsmoc_enroll_run_state, ENROLL_NUM_STATES,
-                        ENROLL_NUM_STATES, "Enroll");
+                        ENROLL_ENROLL_FINISH, "Enroll");
   fpi_ssm_set_data (self->task_ssm, data, g_free);
   fpi_ssm_start (self->task_ssm, synatlsmoc_task_ssm_done);
 }
@@ -3939,12 +3955,25 @@ synatlsmoc_identify_verify_run_state (FpiSsm *ssm, FpDevice *device)
       sensor_frame_finish (self);
       break;
     case IDENTIFY_VERIFY_IMAGE_METRICS:
-      if (self->disable_image_metrics)
+      if (fpi_ssm_get_error (ssm))
+        {
+          fpi_ssm_next_state (ssm);
+          break;
+        }
+
+      if (self->disable_image_metrics ||
+          (fpi_device_get_driver_data (device) & SYNATLSMOC_QUIRK_SKIP_IMAGE_METRICS))
         fpi_ssm_next_state (ssm);
       else
         send_get_image_metrics (self, MIS_IMAGE_METRICS_IMG_QUALITY);
       break;
     case IDENTIFY_VERIFY_IDENTIFY_MATCH:
+      if (fpi_ssm_get_error (ssm))
+        {
+          fpi_ssm_next_state (ssm);
+          break;
+        }
+
       if (fpi_device_get_current_action (device) == FPI_DEVICE_ACTION_IDENTIFY)
         {
           send_identify_match (self, NULL, 0);
@@ -3967,6 +3996,12 @@ synatlsmoc_identify_verify_run_state (FpiSsm *ssm, FpDevice *device)
         }
       break;
     case IDENTIFY_VERIFY_COMPLETE:
+      if (fpi_ssm_get_error (ssm))
+        {
+          fpi_ssm_next_state (ssm);
+          break;
+        }
+
       if (fpi_device_get_current_action (device) == FPI_DEVICE_ACTION_IDENTIFY)
         fpi_device_identify_complete (device, NULL);
       else
@@ -3987,7 +4022,7 @@ synatlsmoc_identify_verify (FpDevice *device)
   IdentifyVerifyData *ssm_data = g_new0 (IdentifyVerifyData, 1);
   self->task_ssm = fpi_ssm_new_full (
       device, synatlsmoc_identify_verify_run_state, IDENTIFY_VERIFY_NUM_STATES,
-      IDENTIFY_VERIFY_NUM_STATES, "Identify/Verify");
+      IDENTIFY_VERIFY_SET_EVENT_NONE, "Identify/Verify");
   fpi_ssm_set_data (self->task_ssm, ssm_data, g_free);
   fpi_ssm_start (self->task_ssm, synatlsmoc_task_ssm_done);
 }
@@ -4030,6 +4065,15 @@ fpi_device_synatlsmoc_init (FpiDeviceSynaTlsMoc *self)
 }
 
 static void
+synatlsmoc_probe (FpDevice *device)
+{
+  if (fpi_device_get_driver_data (device) & SYNATLSMOC_QUIRK_DISABLE_IDENTIFY)
+    fpi_device_update_features (device, FP_DEVICE_FEATURE_IDENTIFY, 0);
+
+  fpi_device_probe_complete (device, NULL, NULL, NULL);
+}
+
+static void
 fpi_device_synatlsmoc_class_init (FpiDeviceSynaTlsMocClass *klass)
 {
   FpDeviceClass *dev_class = FP_DEVICE_CLASS (klass);
@@ -4043,6 +4087,7 @@ fpi_device_synatlsmoc_class_init (FpiDeviceSynaTlsMocClass *klass)
   dev_class->scan_type = FP_SCAN_TYPE_PRESS;
   dev_class->temp_hot_seconds = -1;
 
+  dev_class->probe = synatlsmoc_probe;
   dev_class->open = synatlsmoc_open;
   dev_class->close = synatlsmoc_close;
   dev_class->enroll = synatlsmoc_enroll;

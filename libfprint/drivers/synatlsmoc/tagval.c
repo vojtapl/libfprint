@@ -102,24 +102,33 @@ tagval_new_from_bytes (TagVal **container, guint8 *data, gsize length, GError **
   return TRUE;
 }
 
+static gint
+compare_uint16_tags (gconstpointer left, gconstpointer right)
+{
+  const guint left_tag = GPOINTER_TO_UINT (left);
+  const guint right_tag = GPOINTER_TO_UINT (right);
+
+  return (left_tag > right_tag) - (left_tag < right_tag);
+}
+
 void
 tagval_to_bytes (TagVal *self, guint8 **serialized, gsize *serialized_length)
 {
   FpiByteWriter writer;
   gboolean written = TRUE;
-  GHashTableIter iter;
-  gpointer ptag, pvalue;
+  g_autoptr(GList) tags = NULL;
 
   fpi_byte_writer_init (&writer);
-  g_hash_table_iter_init (&iter, self->vals);
+  tags = g_list_sort (g_hash_table_get_keys (self->vals), compare_uint16_tags);
 
-  while (g_hash_table_iter_next (&iter, &ptag, &pvalue))
+  for (GList *tag = tags; tag != NULL; tag = tag->next)
     {
-      GBytes *bval = (GBytes *) pvalue;
+      GBytes *bval = g_hash_table_lookup (self->vals, tag->data);
       guint32 val_size = g_bytes_get_size (bval);
       const guint8 *val = g_bytes_get_data (bval, NULL);
 
-      written &= fpi_byte_writer_put_uint16_le (&writer, GPOINTER_TO_UINT (ptag));
+      written &= fpi_byte_writer_put_uint16_le (&writer,
+                                                GPOINTER_TO_UINT (tag->data));
       written &= fpi_byte_writer_put_uint32_le (&writer, val_size);
       written &= fpi_byte_writer_put_data (&writer, val, val_size);
 
