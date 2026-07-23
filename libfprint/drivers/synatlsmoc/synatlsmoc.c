@@ -109,7 +109,10 @@ static const FpIdEntry id_table[] = {
     { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x00C9, },
     // { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x00D1, },
     { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x00D8, },
-    { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x00E7, },
+    { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x00E7,
+      .driver_data = SYNATLSMOC_QUIRK_SKIP_IMAGE_METRICS |
+                     SYNATLSMOC_QUIRK_DISABLE_IDENTIFY |
+                     SYNATLSMOC_QUIRK_USE_CAPTURE_PARAM_12, },
     { .vid = SYNAPTICS_VENDOR_ID, .pid = 0x00FF, },
     // { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x0124, },
     // { .vid = SYNAPTICS_VENDOR_ID,  .pid = 0x0169, },
@@ -988,7 +991,9 @@ send_frame_acquire (FpiDeviceSynaTlsMoc *self, guint8 capture_flags)
   written &= fpi_byte_writer_put_uint8 (&writer, VCSFW_CMD_FRAME_ACQ);
   /* I was unable to find the meaning of these values, so I did not abstract
    * them into constants */
-  if (capture_flags == CAPTURE_FLAG_AUTH)
+  if (!(fpi_device_get_driver_data (FP_DEVICE (self)) &
+        SYNATLSMOC_QUIRK_USE_CAPTURE_PARAM_12) &&
+      capture_flags == CAPTURE_FLAG_AUTH)
     written &= fpi_byte_writer_put_uint32_le (&writer, 4116);
   else
     written &= fpi_byte_writer_put_uint32_le (&writer, 12);
@@ -3958,7 +3963,8 @@ synatlsmoc_identify_verify_run_state (FpiSsm *ssm, FpDevice *device)
           break;
         }
 
-      if (self->disable_image_metrics)
+      if (self->disable_image_metrics ||
+          (fpi_device_get_driver_data (device) & SYNATLSMOC_QUIRK_SKIP_IMAGE_METRICS))
         fpi_ssm_next_state (ssm);
       else
         send_get_image_metrics (self, MIS_IMAGE_METRICS_IMG_QUALITY);
@@ -4061,6 +4067,15 @@ fpi_device_synatlsmoc_init (FpiDeviceSynaTlsMoc *self)
 }
 
 static void
+synatlsmoc_probe (FpDevice *device)
+{
+  if (fpi_device_get_driver_data (device) & SYNATLSMOC_QUIRK_DISABLE_IDENTIFY)
+    fpi_device_update_features (device, FP_DEVICE_FEATURE_IDENTIFY, 0);
+
+  fpi_device_probe_complete (device, NULL, NULL, NULL);
+}
+
+static void
 fpi_device_synatlsmoc_class_init (FpiDeviceSynaTlsMocClass *klass)
 {
   FpDeviceClass *dev_class = FP_DEVICE_CLASS (klass);
@@ -4074,6 +4089,7 @@ fpi_device_synatlsmoc_class_init (FpiDeviceSynaTlsMocClass *klass)
   dev_class->scan_type = FP_SCAN_TYPE_PRESS;
   dev_class->temp_hot_seconds = -1;
 
+  dev_class->probe = synatlsmoc_probe;
   dev_class->open = synatlsmoc_open;
   dev_class->close = synatlsmoc_close;
   dev_class->enroll = synatlsmoc_enroll;

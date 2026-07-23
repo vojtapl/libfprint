@@ -65,6 +65,10 @@ G_DECLARE_FINAL_TYPE (FpiDeviceSynaTlsMoc, fpi_device_synatlsmoc, FPI, DEVICE_SY
 
 #define IMAGE_QUALITY_THRESHOLD 50
 
+#define SYNATLSMOC_QUIRK_SKIP_IMAGE_METRICS (1 << 0)
+#define SYNATLSMOC_QUIRK_DISABLE_IDENTIFY (1 << 1)
+#define SYNATLSMOC_QUIRK_USE_CAPTURE_PARAM_12 (1 << 2)
+
 /* known command IDs */
 typedef enum
 {
@@ -215,7 +219,6 @@ enum CAPTURE_FLAGS
   /* WARN: Here we deviate from the reverse-engineered driver,
       as PID 0x00D8 requires the AUTH flag to be 15, while it seems
       to work on other devices too. */
-  /* CAPTURE_FLAG_AUTH = 7, */
   CAPTURE_FLAG_AUTH = 15,
   CAPTURE_FLAG_ENROLL = 15,
 };
