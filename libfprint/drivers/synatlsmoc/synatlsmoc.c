@@ -535,7 +535,7 @@ synatlsmoc_cmd_run_state (FpiSsm *ssm, FpDevice *device)
                                   data->length_in);
       fpi_usb_transfer_submit (
           g_steal_pointer (&transfer), SYNATLSMOC_USB_RECV_TIMEOUT,
-          fpi_device_get_cancellable (device), synatlsmoc_cmd_receive_cb, data);
+          NULL, synatlsmoc_cmd_receive_cb, data);
       break;
     }
 }
@@ -927,28 +927,32 @@ recv_frame_acquire (FpDevice *device, guint8 *buffer_in, gsize length_in, GError
   else if (status == RESPONSE_PROCESSING_FRAME)
     {
       gint *retry_idx;
+      gint retry_state;
       if (fpi_device_get_current_action (device) == FPI_DEVICE_ACTION_ENROLL)
         {
           EnrollData *enroll_ssm_data = fpi_ssm_get_data (self->task_ssm);
           retry_idx = &enroll_ssm_data->frame_acquire_retry_idx;
+          retry_state = ENROLL_SEND_FRAME_ACQUIRE;
         }
-      else if (fpi_device_get_current_action (device) == FPI_DEVICE_ACTION_VERIFY)
+      else if (fpi_device_get_current_action (device) == FPI_DEVICE_ACTION_VERIFY ||
+               fpi_device_get_current_action (device) == FPI_DEVICE_ACTION_IDENTIFY)
         {
           IdentifyVerifyData *identify_verify_ssm_data =
               fpi_ssm_get_data (self->task_ssm);
           retry_idx = &identify_verify_ssm_data->frame_acquire_retry_idx;
+          retry_state = IDENTIFY_VERIFY_SEND_FRAME_ACQUIRE;
         }
       else
         {
           g_assert_not_reached ();
         }
 
-      if (retry_idx > 0)
+      if (*retry_idx > 0)
         {
           *retry_idx -= 1;
           fp_dbg ("Received processing frame; current / max retries: %d/%d ....",
                   *retry_idx, FRAME_ACQUIRE_NUM_RETRIES);
-          fpi_ssm_jump_to_state (self->task_ssm, ENROLL_SEND_FRAME_ACQUIRE);
+          fpi_ssm_jump_to_state (self->task_ssm, retry_state);
         }
       else
         {
@@ -3501,6 +3505,7 @@ static void
 synatlsmoc_close_ssm_done (FpiSsm *ssm, FpDevice *dev, GError *error)
 {
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (dev);
+  g_autoptr (GError) release_error = NULL;
 
   tls_session_free (self->session);
   self->session = NULL;
@@ -3508,7 +3513,9 @@ synatlsmoc_close_ssm_done (FpiSsm *ssm, FpDevice *dev, GError *error)
   // FIXME: causes errors
   // free_pairing_data(&self->pairing_data);
 
-  g_usb_device_release_interface (fpi_device_get_usb_device (dev), 0, 0, &error);
+  if (!g_usb_device_release_interface (fpi_device_get_usb_device (dev), 0, 0,
+                                       &release_error) && !error)
+    error = g_steal_pointer (&release_error);
 
   synatlsmoc_task_ssm_done (ssm, dev, error);
 
@@ -3870,6 +3877,12 @@ synatlsmoc_enroll_run_state (FpiSsm *ssm, FpDevice *device)
       break;
     case ENROLL_REPORT:
       {
+        if (fpi_ssm_get_error (ssm))
+          {
+            fpi_ssm_next_state (ssm);
+            break;
+          }
+
         synatlsmoc_set_print_data (data->print, data->template_id,
                                    data->fp_user_id, data->finger_id);
 
@@ -3898,7 +3911,7 @@ synatlsmoc_enroll (FpDevice *device)
   g_assert (self->task_ssm == NULL);
   self->task_ssm =
       fpi_ssm_new_full (device, synatlsmoc_enroll_run_state, ENROLL_NUM_STATES,
-                        ENROLL_NUM_STATES, "Enroll");
+                        ENROLL_ENROLL_FINISH, "Enroll");
   fpi_ssm_set_data (self->task_ssm, data, g_free);
   fpi_ssm_start (self->task_ssm, synatlsmoc_task_ssm_done);
 }
@@ -3939,12 +3952,24 @@ synatlsmoc_identify_verify_run_state (FpiSsm *ssm, FpDevice *device)
       sensor_frame_finish (self);
       break;
     case IDENTIFY_VERIFY_IMAGE_METRICS:
+      if (fpi_ssm_get_error (ssm))
+        {
+          fpi_ssm_next_state (ssm);
+          break;
+        }
+
       if (self->disable_image_metrics)
         fpi_ssm_next_state (ssm);
       else
         send_get_image_metrics (self, MIS_IMAGE_METRICS_IMG_QUALITY);
       break;
     case IDENTIFY_VERIFY_IDENTIFY_MATCH:
+      if (fpi_ssm_get_error (ssm))
+        {
+          fpi_ssm_next_state (ssm);
+          break;
+        }
+
       if (fpi_device_get_current_action (device) == FPI_DEVICE_ACTION_IDENTIFY)
         {
           send_identify_match (self, NULL, 0);
@@ -3967,6 +3992,12 @@ synatlsmoc_identify_verify_run_state (FpiSsm *ssm, FpDevice *device)
         }
       break;
     case IDENTIFY_VERIFY_COMPLETE:
+      if (fpi_ssm_get_error (ssm))
+        {
+          fpi_ssm_next_state (ssm);
+          break;
+        }
+
       if (fpi_device_get_current_action (device) == FPI_DEVICE_ACTION_IDENTIFY)
         fpi_device_identify_complete (device, NULL);
       else
@@ -3987,7 +4018,7 @@ synatlsmoc_identify_verify (FpDevice *device)
   IdentifyVerifyData *ssm_data = g_new0 (IdentifyVerifyData, 1);
   self->task_ssm = fpi_ssm_new_full (
       device, synatlsmoc_identify_verify_run_state, IDENTIFY_VERIFY_NUM_STATES,
-      IDENTIFY_VERIFY_NUM_STATES, "Identify/Verify");
+      IDENTIFY_VERIFY_SET_EVENT_NONE, "Identify/Verify");
   fpi_ssm_set_data (self->task_ssm, ssm_data, g_free);
   fpi_ssm_start (self->task_ssm, synatlsmoc_task_ssm_done);
 }
