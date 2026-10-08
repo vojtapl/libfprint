@@ -252,10 +252,7 @@ synatlsmoc_verify_sensor_certificate (FpiDeviceSynaTlsMoc *self)
 #endif
   OpenData *ssm_data = fpi_ssm_get_data (self->task_ssm);
 
-  // FIXME: freeing causes reading issues -> currently leaks memory
-  // g_autoptr(EVP_MD_CTX) mdctx = EVP_MD_CTX_create();
-  EVP_MD_CTX *mdctx = EVP_MD_CTX_create ();
-
+  g_autoptr (EVP_MD_CTX) mdctx = EVP_MD_CTX_create ();
   if (EVP_DigestVerifyInit (mdctx, NULL, EVP_sha256 (), NULL,
                             ssm_data->pub_key) <= 0 ||
       EVP_DigestVerifyUpdate (mdctx, self->pairing_data.server_cert_raw,
@@ -3218,18 +3215,18 @@ store_pairing_data (FpiDeviceSynaTlsMoc *self)
 {
   // FIXME: raw cert lengths from pairing data and check on loading
 
-  guint8 *client_cert_raw_cpy =
+  g_autofree guint8 *client_cert_raw_cpy =
       g_memdup2 (self->pairing_data.client_cert_raw, CERTIFICATE_SIZE);
   GVariant *client_cert_var = g_variant_new_fixed_array (
       G_VARIANT_TYPE_BYTE, client_cert_raw_cpy, CERTIFICATE_SIZE, 1);
 
-  guint8 *server_cert_raw_cpy =
+  g_autofree guint8 *server_cert_raw_cpy =
       g_memdup2 (self->pairing_data.server_cert_raw, CERTIFICATE_SIZE);
   GVariant *server_cert_var = g_variant_new_fixed_array (
       G_VARIANT_TYPE_BYTE, server_cert_raw_cpy, CERTIFICATE_SIZE, 1);
 
   GError *local_error = NULL;
-  char *privkey_pem =
+  g_autofree char *privkey_pem =
       export_private_key_to_pem (self->pairing_data.client_key, &local_error);
   if (privkey_pem == NULL)
     {
@@ -3669,8 +3666,7 @@ synatlsmoc_close_ssm_done (FpiSsm *ssm, FpDevice *dev, GError *error)
   tls_session_free (self->session);
   self->session = NULL;
 
-  // FIXME: causes errors
-  // free_pairing_data(&self->pairing_data);
+  free_pairing_data (&self->pairing_data);
 
   g_usb_device_release_interface (fpi_device_get_usb_device (dev), 0, 0, &error);
 
@@ -4058,8 +4054,8 @@ synatlsmoc_enroll (FpDevice *device)
 
   fpi_device_get_enroll_data (device, &data->print);
 
-  gchar *fp_user_id = fpi_print_generate_user_id (data->print);
-  memcpy (data->fp_user_id, fp_user_id, sizeof (FpUserId));
+  g_autofree gchar *fp_user_id = fpi_print_generate_user_id (data->print);
+  g_strlcpy (data->fp_user_id, fp_user_id, sizeof (FpUserId));
 
   data->finger_id = fp_print_get_finger (data->print);
 

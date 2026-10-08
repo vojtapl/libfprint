@@ -1950,15 +1950,15 @@ create_host_certificate (EVP_PKEY *server_key,
 void
 free_pairing_data (SensorPairingData *pairing_data)
 {
-  g_free (pairing_data->server_cert_raw);
-  g_free (pairing_data->server_cert.sign);
-  g_free (pairing_data->server_cert.x);
-  g_free (pairing_data->server_cert.y);
-  g_free (pairing_data->client_cert_raw);
-  g_free (pairing_data->client_cert.sign);
-  g_free (pairing_data->client_cert.x);
-  g_free (pairing_data->client_cert.y);
-  EVP_PKEY_free (pairing_data->client_cert.pub_key);
-  EVP_PKEY_free (pairing_data->server_cert.pub_key);
-  EVP_PKEY_free (pairing_data->client_key);
+  g_clear_pointer (&pairing_data->server_cert_raw, g_free);
+  g_clear_pointer (&pairing_data->server_cert.sign, g_free);
+  g_clear_pointer (&pairing_data->server_cert.x, g_free);
+  g_clear_pointer (&pairing_data->server_cert.y, g_free);
+  g_clear_pointer (&pairing_data->client_cert_raw, g_free);
+  g_clear_pointer (&pairing_data->client_cert.sign, g_free);
+  g_clear_pointer (&pairing_data->client_cert.x, g_free);
+  g_clear_pointer (&pairing_data->client_cert.y, g_free);
+  g_clear_pointer (&pairing_data->client_cert.pub_key, EVP_PKEY_free);
+  g_clear_pointer (&pairing_data->server_cert.pub_key, EVP_PKEY_free);
+  g_clear_pointer (&pairing_data->client_key, EVP_PKEY_free);
 }
