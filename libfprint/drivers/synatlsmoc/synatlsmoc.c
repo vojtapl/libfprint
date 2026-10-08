@@ -52,7 +52,7 @@
  * initialized in Windows */
 /* WARN: current implementation starts a new TLS session on each device open */
 
-#define DEBUG
+// #define DEBUG
 
 /* Needed for testing with libfprint examples they do not support storage of
  * pairing data */
@@ -247,7 +247,9 @@ synatlsmoc_load_sensor_key (FpiDeviceSynaTlsMoc *self)
 static void
 synatlsmoc_verify_sensor_certificate (FpiDeviceSynaTlsMoc *self)
 {
+#ifdef DEBUG
   fp_dbg ("Verifying sensor certificate...");
+#endif
   OpenData *ssm_data = fpi_ssm_get_data (self->task_ssm);
 
   // FIXME: freeing causes reading issues -> currently leaks memory
@@ -272,7 +274,9 @@ synatlsmoc_verify_sensor_certificate (FpiDeviceSynaTlsMoc *self)
 
   EVP_PKEY_free (ssm_data->pub_key);
 
+#ifdef DEBUG
   fp_dbg ("Sensor certificate is valid");
+#endif
 
   fpi_ssm_next_state (self->task_ssm);
 }
@@ -338,6 +342,7 @@ sensor_certificate_from_raw (Certificate *self, guint8 *data, gsize len, GError 
       return FALSE;
     }
 
+#ifdef DEBUG
   g_autofree gchar *x_str = bin2hex (self->x, ECC_KEY_SIZE);
   g_autofree gchar *y_str = bin2hex (self->y, ECC_KEY_SIZE);
   g_autofree gchar *sign_str = bin2hex (self->sign, self->sign_size);
@@ -349,6 +354,7 @@ sensor_certificate_from_raw (Certificate *self, guint8 *data, gsize len, GError 
   fp_dbg ("\tcert_type: 0x%02x", self->cert_type);
   fp_dbg ("\tsign_size: 0x%04x", self->sign_size);
   fp_dbg ("\tsignature: %s", sign_str);
+#endif
 
   return TRUE;
 }
@@ -386,7 +392,9 @@ parse_certificates_within_self (FpiDeviceSynaTlsMoc *self,
 static void
 synatlsmoc_ssm_next_state_cb (FpDevice *device, guchar *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Task SSM next state callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -398,7 +406,9 @@ synatlsmoc_ssm_next_state_cb (FpDevice *device, guchar *buffer_in, gsize length_
 static void
 synatlsmoc_task_ssm_done (FpiSsm *ssm, FpDevice *device, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Task SSM done");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   /* task_ssm is going to be freed by completion of SSM */
@@ -430,7 +440,9 @@ synatlsmoc_cmd_receive_cb (FpiUsbTransfer *transfer,
                            gpointer userdata,
                            GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Command receive callback");
+#endif
 
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
   CmdData *data = userdata;
@@ -485,7 +497,9 @@ synatlsmoc_cmd_receive_cb (FpiUsbTransfer *transfer,
 
       status = FP_READ_UINT16_LE (unwrapped);
 
+#ifdef DEBUG
       fp_dbg ("RESP <- 0x%04x - %s", status, status_to_str (status));
+#endif
 
       if (data->check_res && !status_is_success (status))
         {
@@ -562,7 +576,9 @@ synatlsmoc_cmd_ssm_done (FpiSsm *ssm, FpDevice *device, GError *error)
 static void
 synatlsmoc_exec_cmd (FpiDeviceSynaTlsMoc *self, gboolean raw, gboolean check_res, guint8 *cmd, gsize cmd_size, gsize resp_size, CmdCallback callback)
 {
+#ifdef DEBUG
   fp_dbg ("Execute command and get response");
+#endif
   FpDevice *device = FP_DEVICE (self);
   CmdData *data = g_new0 (CmdData, 1);
   GError *local_error = NULL;
@@ -574,8 +590,8 @@ synatlsmoc_exec_cmd (FpiDeviceSynaTlsMoc *self, gboolean raw, gboolean check_res
 #endif
 
   g_assert (cmd);
-  fp_dbg ("CMD  -> 0x%02x - %s", cmd[0], cmd_to_str (cmd[0]));
 #ifdef DEBUG
+  fp_dbg ("CMD  -> 0x%02x - %s", cmd[0], cmd_to_str (cmd[0]));
   fp_dbg ("\traw req: %s", cmd_str);
 #endif
 
@@ -725,7 +741,9 @@ fp_dbg_mis_version (MisVersion *mis_version)
 static void
 recv_get_version (FpDevice *device, guchar *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive get version callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -752,7 +770,9 @@ recv_get_version (FpDevice *device, guchar *buffer_in, gsize length_in, GError *
       return;
     }
 
+#ifdef DEBUG
   fp_dbg_mis_version (&mis_version);
+#endif
 
   self->fw_version_major = mis_version.version_major;
   self->fw_version_minor = mis_version.version_minor;
@@ -783,7 +803,9 @@ recv_get_version_tls_force_close (FpDevice *device,
                                   gsize length_in,
                                   GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive get version tls force close callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error != NULL)
@@ -808,11 +830,15 @@ recv_get_version_tls_force_close (FpDevice *device,
   guint16 status = FP_READ_UINT16_LE (buffer_in);
   if (status_is_success (status))
     {
+#ifdef DEBUG
       fp_dbg ("TLS force close - sensor was not in TLS session");
+#endif
     }
   else if (status == unclosed_tls_session_status)
     {
+#ifdef DEBUG
       fp_dbg ("TLS force close - sensor was in TLS status");
+#endif
     }
   else
     {
@@ -856,7 +882,9 @@ send_cmd_to_force_close_sensor_tls_session (
 static void
 recv_tls_data (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive TLS handshake callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -910,7 +938,9 @@ send_tls_data (FpiDeviceSynaTlsMoc *self, guint8 *tdata, gsize tdata_size)
 static void
 recv_frame_acquire (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive frame acquire callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -946,8 +976,10 @@ recv_frame_acquire (FpDevice *device, guint8 *buffer_in, gsize length_in, GError
       if (retry_idx > 0)
         {
           *retry_idx -= 1;
+#ifdef DEBUG
           fp_dbg ("Received processing frame; current / max retries: %d/%d ....",
                   *retry_idx, FRAME_ACQUIRE_NUM_RETRIES);
+#endif
           fpi_ssm_jump_to_state (self->task_ssm, ENROLL_SEND_FRAME_ACQUIRE);
         }
       else
@@ -973,7 +1005,9 @@ send_frame_acquire (FpiDeviceSynaTlsMoc *self, guint8 capture_flags)
   const guint send_size = 17;
   const guint expected_recv_size = SENSOR_FW_REPLY_STATUS_HEADER_LEN;
 
+#ifdef DEBUG
   fp_dbg ("Frame acquire command");
+#endif
 
   FpiByteWriter writer;
   gboolean written = TRUE;
@@ -1015,7 +1049,9 @@ sensor_frame_finish (FpiDeviceSynaTlsMoc *self)
 {
   const guint send_size = 1;
   const guint expected_recv_size = SENSOR_FW_REPLY_STATUS_HEADER_LEN;
+#ifdef DEBUG
   fp_dbg ("Frame finish command");
+#endif
 
   guint8 cmd[send_size];
   cmd[0] = VCSFW_CMD_FRAME_FINISH;
@@ -1029,7 +1065,9 @@ sensor_frame_finish (FpiDeviceSynaTlsMoc *self)
 static void
 recv_event_config (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive event config callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -1054,7 +1092,9 @@ recv_event_config (FpDevice *device, guint8 *buffer_in, gsize length_in, GError 
       return;
     }
 
+#ifdef DEBUG
   fp_dbg ("Current event sequence number: %d", self->event_seq_num);
+#endif
 
   fpi_ssm_next_state (self->task_ssm);
 }
@@ -1066,7 +1106,9 @@ send_event_config (FpiDeviceSynaTlsMoc *self, guint32 mask)
   const guint send_size = 37;
   const guint expected_recv_size = 66;
 
+#ifdef DEBUG
   fp_dbg ("Setting event mask to 0b%032b", mask);
+#endif
 
   FpiByteWriter writer;
   gboolean written = TRUE;
@@ -1099,7 +1141,9 @@ static void send_event_read (FpiDeviceSynaTlsMoc *self);
 static void
 recv_event_read (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Recv event read");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -1120,10 +1164,12 @@ recv_event_read (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *e
       if (sensor_status_is_result_bad_param (status) &&
           (!self->event_read_in_legacy_mode))
         {
+#ifdef DEBUG
           fp_dbg (
               "\tReceived status 0x%04x on event read, falling back to "
               "legacy event reading -> sending event read again",
               status);
+#endif
           self->event_read_in_legacy_mode = TRUE;
           send_event_read (self);
           return;
@@ -1161,14 +1207,20 @@ recv_event_read (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *e
       self->num_pending_events = recv_num_pending_events;
     }
 
+#ifdef DEBUG
   fp_dbg ("\tNumber of events received: %d", recv_num_events);
   fp_dbg ("\tNumber of events received+pending: %d", recv_num_pending_events);
+#endif
 
   self->event_seq_num = (self->event_seq_num + recv_num_events) & 0xFFFF;
+#ifdef DEBUG
   fp_dbg ("\tNew event sequence number: %d", self->event_seq_num);
+#endif
 
-  // Parse events
+// Parse events
+#ifdef DEBUG
   fp_dbg ("\tReceived events:");
+#endif
   for (int i = 0; i < recv_num_events && read_ok; i++)
     {
       guint8 event_type;
@@ -1184,15 +1236,19 @@ recv_event_read (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *e
           return;
         }
 
+#ifdef DEBUG
       fp_dbg ("\t\t%d = %s", event_type, event_type_to_str (event_type));
+#endif
 
       self->event_recv |= (1 << event_type);
     }
 
   if (self->num_pending_events > 0)
     {
+#ifdef DEBUG
       fp_dbg ("\tThere are %u events pending -> sending event read again",
               self->num_pending_events);
+#endif
       send_event_read (self);
     }
   else if (self->event_recv == self->event_mask)
@@ -1209,7 +1265,9 @@ recv_event_read (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *e
 static void
 send_event_read (FpiDeviceSynaTlsMoc *self)
 {
+#ifdef DEBUG
   fp_dbg ("Send event read");
+#endif
   const guint16 max_num_events_in_resp = 32;
 
   const guint send_size = self->event_read_in_legacy_mode ? 5 : 9;
@@ -1243,7 +1301,9 @@ send_event_read (FpiDeviceSynaTlsMoc *self)
 static void
 recv_pair (FpDevice *device, guchar *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive pair");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error != NULL)
@@ -1311,7 +1371,9 @@ send_pair (FpiDeviceSynaTlsMoc *self,
   const guint expected_recv_size =
       SENSOR_FW_REPLY_STATUS_HEADER_LEN + 2 * CERTIFICATE_SIZE;
 
+#ifdef DEBUG
   fp_dbg ("Pair command");
+#endif
 
   FpiByteWriter writer;
   gboolean written = TRUE;
@@ -1333,7 +1395,9 @@ send_pair (FpiDeviceSynaTlsMoc *self,
 static void
 recv_enroll_start (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive enroll start callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -1360,8 +1424,10 @@ recv_enroll_start (FpDevice *device, guint8 *buffer_in, gsize length_in, GError 
       return;
     }
 
+#ifdef DEBUG
   // NOTE: nonce buffer is not used
   fp_dbg ("Received nonce buffer with size: %d", nonce_size);
+#endif
 
   fpi_ssm_next_state (self->task_ssm);
 }
@@ -1375,7 +1441,9 @@ send_enroll_start (FpiDeviceSynaTlsMoc *self)
   const guint send_size = 13;
   const guint expected_recv_size = 6 + nonce_buffer_size;
 
+#ifdef DEBUG
   fp_dbg ("Enroll start command");
+#endif
 
   FpiByteWriter writer;
   gboolean written = TRUE;
@@ -1441,7 +1509,9 @@ fpi_byte_reader_get_enroll_stats (FpiByteReader *reader,
 static void
 recv_add_image (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive add image callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -1486,9 +1556,11 @@ recv_add_image (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *er
   read_ok &= fpi_byte_reader_get_enroll_stats (&reader, &enroll_stats);
   FAIL_TASK_SSM_AND_RETURN_IF_NOT_READ (read_ok);
 
+#ifdef DEBUG
   fp_dbg_enroll_stats (&enroll_stats);
   g_autofree gchar *template_id_str = bin2hex (template_id_offset, DB2_ID_SIZE);
   fp_dbg ("\ttemplate id: %s", template_id_str);
+#endif
 
   GError *retry = NULL;
 
@@ -1518,8 +1590,10 @@ recv_add_image (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *er
 
   if (enroll_stats.progress == 100)
     {
+#ifdef DEBUG
       fp_dbg ("Enrollment completed successfully with quality %d",
               enroll_stats.quality);
+#endif
 
       memcpy (data->template_id, template_id_offset, DB2_ID_SIZE);
 
@@ -1534,7 +1608,9 @@ recv_add_image (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *er
 static void
 send_add_image (FpiDeviceSynaTlsMoc *self)
 {
+#ifdef DEBUG
   fp_dbg ("Add image command");
+#endif
   const guint send_size = 5;
   const guint expected_recv_size = 82;
 
@@ -1559,7 +1635,9 @@ send_enroll_commit (FpiDeviceSynaTlsMoc *self,
                     guint8 *enroll_commit_data,
                     gsize enroll_commit_data_size)
 {
+#ifdef DEBUG
   fp_dbg ("Enroll commit command");
+#endif
   g_assert ((enroll_commit_data_size != 0) && (enroll_commit_data != NULL));
 
   const guint send_size = 13 + enroll_commit_data_size;
@@ -1588,7 +1666,9 @@ send_enroll_commit (FpiDeviceSynaTlsMoc *self,
 static void
 send_enroll_finish (FpiDeviceSynaTlsMoc *self)
 {
+#ifdef DEBUG
   fp_dbg ("Enroll finish command");
+#endif
   const guint send_size = 5;
   const guint expected_recv_size = SENSOR_FW_REPLY_STATUS_HEADER_LEN;
 
@@ -1613,7 +1693,9 @@ send_enroll_finish (FpiDeviceSynaTlsMoc *self)
 static void
 recv_identify_match (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive identify match callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -1772,7 +1854,9 @@ send_identify_match (FpiDeviceSynaTlsMoc *self,
                      Db2Id *template_ids_to_match,
                      guint template_id_cnt)
 {
+#ifdef DEBUG
   fp_dbg ("Identify match command");
+#endif
 
   /* unused function argument */
   const gsize data_2_size = 0;
@@ -1822,7 +1906,9 @@ send_identify_match (FpiDeviceSynaTlsMoc *self,
 static void
 recv_get_image_metrics (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive image metrics callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -1843,7 +1929,7 @@ recv_get_image_metrics (FpDevice *device, guint8 *buffer_in, gsize length_in, GE
       if ((status == VCS_RESULT_SENSOR_BAD_CMD) && (!self->disable_image_metrics))
         {
           fp_warn ("Received status 0x%04x on get_image_metrics, disabling them",
-              status);
+                   status);
           self->disable_image_metrics = TRUE;
           fpi_ssm_next_state (self->task_ssm);
           return;
@@ -1887,7 +1973,9 @@ recv_get_image_metrics (FpDevice *device, guint8 *buffer_in, gsize length_in, GE
           read_ok &= fpi_byte_reader_get_uint32_le (&reader, &ipl_coverage);
           FAIL_TASK_SSM_AND_RETURN_IF_NOT_READ (read_ok);
 
+#ifdef DEBUG
           fp_dbg ("IPL finger coverage: %u", ipl_coverage);
+#endif
           break;
         case MIS_IMAGE_METRICS_IMG_QUALITY:
           g_assert (image_metrics_length == 8);
@@ -1898,8 +1986,10 @@ recv_get_image_metrics (FpDevice *device, guint8 *buffer_in, gsize length_in, GE
               fpi_byte_reader_get_uint32_le (&reader, &matcher_sensor_coverage);
           FAIL_TASK_SSM_AND_RETURN_IF_NOT_READ (read_ok);
 
+#ifdef DEBUG
           fp_dbg ("Matcher image quality: %d%%", matcher_img_quality);
           fp_dbg ("Matcher sensor coverage: %d%%", matcher_sensor_coverage);
+#endif
 
           if (matcher_img_quality < IMAGE_QUALITY_THRESHOLD)
             {
@@ -1931,7 +2021,9 @@ static void
 send_get_image_metrics (FpiDeviceSynaTlsMoc *self,
                         ImageMetricsType type)
 {
+#ifdef DEBUG
   fp_dbg ("Image metrics command");
+#endif
 
   FpiByteWriter writer;
   gboolean written = TRUE;
@@ -2036,7 +2128,9 @@ fp_dbg_db2_info (Db2Info *db2_info)
 static void
 recv_db2_get_db2_info (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive DB2 info callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -2065,7 +2159,9 @@ recv_db2_get_db2_info (FpDevice *device, guint8 *buffer_in, gsize length_in, GEr
       return;
     }
 
+#ifdef DEBUG
   fp_dbg_db2_info (&db2_info);
+#endif
 
   data->num_current_users = db2_info.num_current_users;
   data->num_current_templates = db2_info.num_current_templates;
@@ -2124,7 +2220,9 @@ get_object_list_recv_size (FpiDeviceSynaTlsMoc *self,
 static void
 recv_db2_get_template_list (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive DB2 template list callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -2144,9 +2242,11 @@ recv_db2_get_template_list (FpDevice *device, guint8 *buffer_in, gsize length_in
   read_ok &= fpi_byte_reader_get_uint16_le (&reader, &num_templates);
 
   FAIL_TASK_SSM_AND_RETURN_IF_NOT_READ (read_ok);
+#ifdef DEBUG
   fp_dbg (
       "Received object list of obj_type OBJ_TYPE_TEMPLATES with %d elements:",
       num_templates);
+#endif
 
   for (int i = 0; i < num_templates && read_ok; i++)
     {
@@ -2154,15 +2254,19 @@ recv_db2_get_template_list (FpDevice *device, guint8 *buffer_in, gsize length_in
       fpi_byte_reader_dup_data (&reader, DB2_ID_SIZE, &template_id);
 
       FAIL_TASK_SSM_AND_RETURN_IF_NOT_READ (read_ok);
+#ifdef DEBUG
       g_autofree gchar *template_str = bin2hex (template_id, DB2_ID_SIZE);
       fp_dbg ("\tat idx %d is: %s", i, template_str);
+#endif
 
       g_ptr_array_add (data->list_template_id, g_steal_pointer (&template_id));
     }
 
   if (data->list_template_id->len == 0)
     {
+#ifdef DEBUG
       fp_dbg ("Received empty tuid list");
+#endif
       fpi_ssm_jump_to_state (self->task_ssm, LIST_REPORT);
     }
   else
@@ -2174,7 +2278,9 @@ recv_db2_get_template_list (FpDevice *device, guint8 *buffer_in, gsize length_in
 static void
 recv_db2_get_payload_list (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive DB2 payload list callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -2194,8 +2300,10 @@ recv_db2_get_payload_list (FpDevice *device, guint8 *buffer_in, gsize length_in,
   read_ok &= fpi_byte_reader_get_uint16_le (&reader, &num_payloads);
 
   FAIL_TASK_SSM_AND_RETURN_IF_NOT_READ (read_ok);
+#ifdef DEBUG
   fp_dbg ("Received object list of obj_type OBJ_TYPE_PAYLOADS with %d elements ",
           num_payloads);
+#endif
 
   for (int i = 0; i < num_payloads && read_ok; i++)
     {
@@ -2203,17 +2311,21 @@ recv_db2_get_payload_list (FpDevice *device, guint8 *buffer_in, gsize length_in,
       fpi_byte_reader_dup_data (&reader, DB2_ID_SIZE, &payload);
 
       FAIL_TASK_SSM_AND_RETURN_IF_NOT_READ (read_ok);
+#ifdef DEBUG
       g_autofree gchar *payload_str = bin2hex (payload, DB2_ID_SIZE);
       fp_dbg ("\tat idx %d is: %s", i, payload_str);
+#endif
 
       g_ptr_array_add (data->list_payload_id, g_steal_pointer (&payload));
     }
 
   if (data->list_payload_id->len == 0)
     {
+#ifdef DEBUG
       g_autofree gchar *tuid_str =
           bin2hex ((guint8 *) data->current_template_id, DB2_ID_SIZE);
       fp_dbg ("No payload data for an enrollment with tuid: %s", tuid_str);
+#endif
 
       if (data->list_template_id->len > 0)
         fpi_ssm_jump_to_state (self->task_ssm, LIST_DB2_GET_PAYLOAD_LIST);
@@ -2236,9 +2348,11 @@ send_db2_get_object_list (FpiDeviceSynaTlsMoc *self,
   const guint send_size = 21;
   const guint expected_recv_size = get_object_list_recv_size (self, obj_type);
 
+#ifdef DEBUG
   g_autofree char *obj_id_str = bin2hex (obj_id, DB2_ID_SIZE);
   fp_dbg ("Getting object list of type %s for id: %s", obj_type_to_str (obj_type),
           obj_id_str);
+#endif
 
   FpiByteWriter writer;
   gboolean written = TRUE;
@@ -2275,7 +2389,9 @@ send_db2_get_object_list (FpiDeviceSynaTlsMoc *self,
 static void
 recv_db2_get_payload_info (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive DB2 payload info callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -2310,6 +2426,7 @@ recv_db2_get_payload_info (FpDevice *device, guint8 *buffer_in, gsize length_in,
       return;
     }
 
+#ifdef DEBUG
   g_autofree gchar *info_0_1_str = bin2hex (info_0_1, 2);
   g_autofree gchar *info_2_17_str = bin2hex (info_2_17, 16);
   g_autofree gchar *info_18_33_str = bin2hex (info_18_33, 16);
@@ -2320,6 +2437,7 @@ recv_db2_get_payload_info (FpDevice *device, guint8 *buffer_in, gsize length_in,
   fp_dbg ("\t18-33: %s", info_18_33_str);
   fp_dbg ("\t34-45: %s", info_34_45_str);
   fp_dbg ("\t46-49 size of payload data: %d", payload_size);
+#endif
 
   data->current_payload_size = payload_size;
 
@@ -2329,7 +2447,9 @@ recv_db2_get_payload_info (FpDevice *device, guint8 *buffer_in, gsize length_in,
 static void
 recv_db2_get_template_info (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive DB2 template info callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -2367,6 +2487,7 @@ recv_db2_get_template_info (FpDevice *device, guint8 *buffer_in, gsize length_in
       return;
     }
 
+#ifdef DEBUG
   g_autofree gchar *info_0_1_str = bin2hex (info_0_1, 2);
   g_autofree gchar *user_id_str = bin2hex (data->user_id, DB2_ID_SIZE);
   g_autofree gchar *info_18_33_str = bin2hex (info_18_33, 16);
@@ -2377,6 +2498,7 @@ recv_db2_get_template_info (FpDevice *device, guint8 *buffer_in, gsize length_in
   fp_dbg ("\t18-33: %s", info_18_33_str);
   fp_dbg ("\t34-45: %s", info_34_45_str);
   fp_dbg ("\t46-49: %d", some_size);
+#endif
 
   fpi_ssm_next_state (self->task_ssm);
 }
@@ -2389,9 +2511,11 @@ send_db2_get_object_info (FpiDeviceSynaTlsMoc *self,
   const guint send_size = 21;
   const guint expected_recv_size = obj_type == OBJ_TYPE_USERS ? 12 : 52;
 
+#ifdef DEBUG
   g_autofree gchar *obj_id_str = bin2hex (obj_id, DB2_ID_SIZE);
   fp_dbg ("Getting object info for %s with id: %s", obj_type_to_str (obj_type),
           obj_id_str);
+#endif
 
   FpiByteWriter writer;
   fpi_byte_writer_init_with_size (&writer, send_size, TRUE);
@@ -2429,7 +2553,9 @@ send_db2_get_object_info (FpiDeviceSynaTlsMoc *self,
 static void
 recv_db2_get_payload_data (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive DB2 payload data callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -2489,6 +2615,7 @@ recv_db2_get_payload_data (FpDevice *device, guint8 *buffer_in, gsize length_in,
   g_assert (user_id_len == sizeof (FpUserId));
   g_assert (finger_id_len == sizeof (FingerId));
 
+#ifdef DEBUG
   g_autofree gchar *tuid_str =
       bin2hex ((guint8 *) data->current_template_id, DB2_ID_SIZE);
   g_autofree gchar *payload_id_str =
@@ -2500,6 +2627,7 @@ recv_db2_get_payload_data (FpDevice *device, guint8 *buffer_in, gsize length_in,
   fp_dbg ("\ttemplate_id: %s", template_id_str);
   fp_dbg ("\tuser_id: \"%s\"", user_id);
   fp_dbg ("\tfinger_id: %d", *finger_id);
+#endif
 
   FpPrint *print = fp_print_new (device);
   synatlsmoc_set_print_data (print, template_id, (char *) user_id, *finger_id);
@@ -2532,9 +2660,11 @@ send_db2_get_object_data (FpiDeviceSynaTlsMoc *self,
       expected_recv_size = 8 + obj_data_size;
     }
 
+#ifdef DEBUG
   g_autofree gchar *obj_id_str = bin2hex (obj_id, DB2_ID_SIZE);
   fp_dbg ("Getting object data for %s with id: %s", obj_type_to_str (obj_type),
           obj_id_str);
+#endif
 
   FpiByteWriter writer;
   fpi_byte_writer_init_with_size (&writer, send_size, TRUE);
@@ -2570,7 +2700,9 @@ send_db2_get_object_data (FpiDeviceSynaTlsMoc *self,
 static void
 recv_db2_delete_object (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive DB2 delete object callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -2596,7 +2728,9 @@ recv_db2_delete_object (FpDevice *device, guint8 *buffer_in, gsize length_in, GE
       return;
     }
 
+#ifdef DEBUG
   fp_dbg ("Number of deleted objects: %d", num_deleted);
+#endif
 
   fpi_ssm_next_state (self->task_ssm);
 }
@@ -2609,8 +2743,10 @@ send_db2_delete_object (FpiDeviceSynaTlsMoc *self,
   const guint send_size = 21;
   const guint expected_recv_size = 4;
 
+#ifdef DEBUG
   g_autofree gchar *obj_id_str = bin2hex (obj_id, DB2_ID_SIZE);
   fp_dbg ("Deleting %s with id: %s", obj_type_to_str (obj_type), obj_id_str);
+#endif
 
   FpiByteWriter writer;
   fpi_byte_writer_init_with_size (&writer, send_size, TRUE);
@@ -2654,9 +2790,11 @@ recv_db2_cleanup (FpDevice *device, guchar *buffer_in, gsize length_in, GError *
 
   FAIL_TASK_SSM_AND_RETURN_IF_NOT_READ (read_ok);
 
+#ifdef DEBUG
   fp_dbg ("DB2 cleanup succeeded with:");
   fp_dbg ("\tNumber of erased slots: %u", num_erased_slots);
   fp_dbg ("\tNew partition version: %u", new_partition_version);
+#endif
 
 error:
   if (error != NULL)
@@ -2688,7 +2826,9 @@ send_db2_cleanup (FpiDeviceSynaTlsMoc *self)
 static void
 recv_db2_format (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Receive DB2 format callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -2715,8 +2855,10 @@ recv_db2_format (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *e
       return;
     }
 
+#ifdef DEBUG
   fp_dbg ("Format succeded with new partition version: %d",
           new_partition_version);
+#endif
 
   fpi_ssm_next_state (self->task_ssm);
 }
@@ -2724,7 +2866,9 @@ recv_db2_format (FpDevice *device, guint8 *buffer_in, gsize length_in, GError *e
 static void
 send_db2_format (FpiDeviceSynaTlsMoc *self)
 {
+#ifdef DEBUG
   fp_dbg ("DB2 format command");
+#endif
   const guint send_size = 12;
   const guint expected_recv_size = 8;
 
@@ -2770,8 +2914,10 @@ synatlsmoc_tls_status_cb (FpiUsbTransfer *transfer, FpDevice *device, gpointer u
     }
 
   self->server_established = FP_READ_UINT8 (transfer->buffer) != 0;
+#ifdef DEBUG
   fp_dbg ("<- server TLS session status: %s",
           self->server_established ? "established" : "not established");
+#endif
 
   fpi_ssm_next_state (transfer->ssm);
 }
@@ -2781,7 +2927,9 @@ synatlsmoc_get_tls_status (FpiDeviceSynaTlsMoc *self, FpiSsm *ssm)
 {
   FpDevice *device = FP_DEVICE (self);
 
+#ifdef DEBUG
   fp_dbg ("-> server TLS session status?");
+#endif
 
   FpiUsbTransfer *transfer = fpi_usb_transfer_new (device);
   fpi_usb_transfer_fill_control (
@@ -2825,8 +2973,10 @@ reset_usb_device_on_callback (FpiUsbTransfer *transfer,
 static void
 write_dft (FpiDeviceSynaTlsMoc *self, const guint8 *data, const gsize data_size, FpiUsbTransferCallback callback)
 {
+#ifdef DEBUG
   g_autofree char *data_str = bin2hex (data, data_size);
   fp_dbg ("DFT -> %s", data_str);
+#endif
 
   /* Send data */
   g_autoptr (FpiUsbTransfer) transfer = fpi_usb_transfer_new (FP_DEVICE (self));
@@ -2862,11 +3012,15 @@ send_bootloader_mode_enter_exit (FpiDeviceSynaTlsMoc *self,
   switch (type)
     {
     case BOOTLOADER_MODE_EXIT:
+#ifdef DEBUG
       fp_dbg ("Entering bootloader mode");
+#endif
       to_send = to_send_enter;
       break;
     case BOOTLOADER_MODE_ENTER:
+#ifdef DEBUG
       fp_dbg ("Exiting bootloader mode");
+#endif
       to_send = to_send_exit;
       break;
     default:
@@ -2956,7 +3110,9 @@ synatlsmoc_event_interrupt_cb (FpiUsbTransfer *transfer,
                                gpointer user_data,
                                GError *error)
 {
+#ifdef DEBUG
   fp_dbg ("Wait for events callback");
+#endif
   FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
 
   if (error)
@@ -2983,8 +3139,10 @@ synatlsmoc_event_interrupt_cb (FpiUsbTransfer *transfer,
       fpi_ssm_mark_failed (transfer->ssm, error);
     }
 
+#ifdef DEBUG
   fp_dbg ("Event sequence numbers: host=%d, sensor=%d", self->event_seq_num,
           sensor_seq_num);
+#endif
 
   send_event_read (self);
 }
@@ -2992,7 +3150,9 @@ synatlsmoc_event_interrupt_cb (FpiUsbTransfer *transfer,
 static void
 synatlsmoc_wait_for_events (FpiDeviceSynaTlsMoc *self)
 {
+#ifdef DEBUG
   fp_dbg ("Waiting for events...");
+#endif
 
   FpiUsbTransfer *transfer = fpi_usb_transfer_new (FP_DEVICE (self));
   transfer->ssm = self->task_ssm;
@@ -3245,7 +3405,9 @@ pair (FpiDeviceSynaTlsMoc *self)
       return;
     }
 
+#ifdef DEBUG
   fp_dbg ("Pairing sensor");
+#endif
 
   self->pairing_data.client_key = EVP_EC_gen ("prime256v1");
 
@@ -3337,7 +3499,9 @@ synatlsmoc_open_run_state (FpiSsm *ssm, FpDevice *dev)
         }
       else if (self->session != NULL && self->server_established)
         {
+#ifdef DEBUG
           fp_dbg ("Host and sensor are already in TLS session");
+#endif
           fpi_ssm_mark_completed (ssm);
         }
       else
@@ -3524,7 +3688,9 @@ close_tls_session (FpiDeviceSynaTlsMoc *self)
 
   guint expected_recv_size = 256;
 
+#ifdef DEBUG
   fp_dbg ("Closing TLS session...");
+#endif
   if (!tls_session_close (self->session, &error))
     {
       fpi_ssm_mark_failed (self->task_ssm, error);
@@ -3824,9 +3990,11 @@ synatlsmoc_enroll_run_state (FpiSsm *ssm, FpDevice *device)
     {
     case ENROLL_ENROLL_START:
       {
+#ifdef DEBUG
         fp_dbg ("Starting enroll process...");
         fp_dbg ("\tfp_user_id: %s", data->fp_user_id);
         fp_dbg ("\tfinger_id: %d", data->finger_id);
+#endif
 
         send_enroll_start (self);
         break;
@@ -3916,7 +4084,9 @@ synatlsmoc_identify_verify_run_state (FpiSsm *ssm, FpDevice *device)
       synatlsmoc_wait_for_events (self);
       break;
     case IDENTIFY_VERIFY_SET_EVENT_FRAME_READY:
+#ifdef DEBUG
       fp_dbg ("Capturing image...");
+#endif
       send_event_config (self, EV_FRAME_READY);
       break;
     case IDENTIFY_VERIFY_SEND_FRAME_ACQUIRE:;
