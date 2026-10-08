@@ -1049,8 +1049,10 @@ tls_session_receive_handshake (TlsSession *self, Handshake *msg, GError **error)
             return FALSE;
           }
 
+#ifdef DEBUG_SSL
         // At this point, the cipher suite takes over handshake negotiation
         fp_dbg ("Starting cipher suite handshake...");
+#endif
         self->handshake_phase = SUITE_HANDSHAKE;
         break;
       }
@@ -1236,7 +1238,9 @@ tls_session_receive_handshake (TlsSession *self, Handshake *msg, GError **error)
             return FALSE;
           }
 
+#ifdef DEBUG_SSL
         fp_dbg ("Cipher suite handshake ended");
+#endif
 
         // Calculate master secret
         uint8_t rnd[2 * RANDOM_SIZE];
@@ -1459,7 +1463,9 @@ tls_session_receive (TlsSession *self, TlsRecord *record, GError **error)
               {
                 if (self->send_closed)
                   {
+#ifdef DEBUG_SSL
                     fp_dbg ("Server confirmed session close");
+#endif
                   }
                 else
                   {
@@ -1619,7 +1625,9 @@ tls_session_establish (TlsSession *self, GError **error)
       return FALSE;
     }
 
+#ifdef DEBUG_SSL
   fp_dbg ("Starting TLS handshake...");
+#endif
 
   if (!tls_session_send_client_hello (self, &local_error))
     {
@@ -1773,6 +1781,7 @@ generate_hs_priv_key (EVP_PKEY **hs_privkey, GError **error)
   /* output is in little-endian, OpenSSL expects big-endian */
   reverse_array (privkey_k, ECC_KEY_SIZE);
 
+#ifdef DEBUG_SSL
   /* NOTE: expected result (HS_KEY_PAIR_GEN), then converted to big-endian as
    * expected by OpenSSL
    * guint8 k[ECC_KEY_SIZE] = {0xe8, 0xa2, 0xa2, 0xb6, 0x65, 0x62, 0x54, 0xd6,
@@ -1781,6 +1790,7 @@ generate_hs_priv_key (EVP_PKEY **hs_privkey, GError **error)
    */
   g_autofree char *privkey_k_str = bin2hex (privkey_k, ECC_KEY_SIZE);
   fp_dbg ("Generated hs privkey k param: %s", privkey_k_str);
+#endif
 
   g_autoptr (OSSL_PARAM_BLD) param_bld = OSSL_PARAM_BLD_new ();
   g_autoptr (BIGNUM) k_bn = BN_bin2bn (privkey_k, ECC_KEY_SIZE, NULL);
@@ -1928,9 +1938,11 @@ create_host_certificate (EVP_PKEY *server_key,
   RETURN_FALSE_AND_SET_ERROR_IF_NOT_WRITTEN (written);
   g_assert (fpi_byte_writer_get_pos (&writer) == CERTIFICATE_SIZE);
 
+#ifdef DEBUG_SSL
   g_autofree char *host_certificate_str =
       bin2hex (*host_certificate_bytes, CERTIFICATE_SIZE);
   fp_dbg ("Genereted host certificate: %s", host_certificate_str);
+#endif
 
   return TRUE;
 }
