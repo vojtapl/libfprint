@@ -892,7 +892,10 @@ synatlsmoc_exec_cmd (FpiDeviceSynaTlsMoc *self, gboolean raw, gboolean check_res
 static void
 synatlsmoc_set_print_data (FpPrint *print, Db2Id template_id, FpUserId fp_user_id, FingerId finger_id)
 {
-  g_autofree gchar *user_id_safe = g_strndup (fp_user_id, sizeof (FpUserId));
+  /* always sizeof (FpUserId) + 1 bytes, zero padded */
+  g_autofree gchar *user_id_safe = g_malloc0 (sizeof (FpUserId) + 1);
+
+  strncpy (user_id_safe, fp_user_id, sizeof (FpUserId));
 
   fpi_print_fill_from_user_id (print, user_id_safe);
   fpi_print_set_type (print, FPI_PRINT_RAW);
@@ -2645,6 +2648,18 @@ recv_db2_get_payload_list (FpDevice *device, guint8 *buffer_in, gsize length_in,
       fp_dbg ("No payload data for an enrollment with tuid: %s", tuid_str);
 #endif
 
+      /* A template without payload was not enrolled by this driver, or its
+       * enrollment was interrupted before the payload was written. It still
+       * takes up one of the few template slots of the sensor, so report it:
+       * that way it can be deleted, e.g. by the garbage collection that
+       * fprintd does when the storage is full. */
+      FpUserId no_user_id = { 0 };
+      FpPrint *print = fp_print_new (device);
+
+      synatlsmoc_set_print_data (print, *data->current_template_id, no_user_id, 0);
+      g_object_set (print, "description", "Template without enrollment data", NULL);
+      g_ptr_array_add (data->list_result, g_object_ref_sink (print));
+
       if (data->list_template_id->len > 0)
         fpi_ssm_jump_to_state (self->task_ssm, LIST_DB2_GET_PAYLOAD_LIST);
       else
@@ -4151,6 +4166,36 @@ synatlsmoc_delete_ssm_done (FpiSsm *ssm, FpDevice *device, GError *error)
     fpi_device_delete_complete (device, NULL);
 }
 
+/* Templates without payload are listed with an empty user id. They were
+ * enrolled by another host (e.g. Windows on a dual boot machine) or left behind
+ * by an interrupted enrollment, so they are only deleted on request:
+ * SYNATLSMOC_DELETE_ALL_TEMPLATES=1, e.g. with examples/manage-prints. */
+static gboolean
+synatlsmoc_delete_all_templates (void)
+{
+  return g_strcmp0 (g_getenv ("SYNATLSMOC_DELETE_ALL_TEMPLATES"), "1") == 0;
+}
+
+static gboolean
+print_has_user_id (FpPrint *print)
+{
+  g_autoptr (GVariant) fpi_data = NULL;
+  g_autoptr (GVariant) fp_user_id_var = NULL;
+  g_autoptr (GVariant) tid_var = NULL;
+  FingerId finger_id = 0;
+  const guint8 *user_id;
+  gsize user_id_len = 0;
+
+  g_object_get (print, "fpi-data", &fpi_data, NULL);
+  if (!g_variant_check_format_string (fpi_data, "(y@ay@ay)", FALSE))
+    return FALSE;
+
+  g_variant_get (fpi_data, "(y@ay@ay)", &finger_id, &tid_var, &fp_user_id_var);
+  user_id = g_variant_get_fixed_array (fp_user_id_var, &user_id_len, 1);
+
+  return user_id_len > 0 && user_id[0] != '\0';
+}
+
 static gboolean
 get_template_id_from_fp_print (FpPrint *print, Db2Id template_id, GError **error)
 {
@@ -4236,7 +4281,23 @@ synatlsmoc_delete (FpDevice *device)
   if (!get_template_id_from_fp_print (print_to_delete,
                                       delete_ssm_data->template_id, &error))
     {
+      g_free (delete_ssm_data);
       fpi_device_delete_complete (device, error);
+      return;
+    }
+
+  /* fprintd deletes any print it does not know when the storage is full, so
+   * do not let it remove the templates of another host (see
+   * synatlsmoc_delete_all_templates ()) */
+  if (!print_has_user_id (print_to_delete) && !synatlsmoc_delete_all_templates ())
+    {
+      g_free (delete_ssm_data);
+      fpi_device_delete_complete (
+          device,
+          fpi_device_error_new_msg (FP_DEVICE_ERROR_GENERAL,
+                                    "Not deleting a template without enrollment "
+                                    "data, it may belong to another host; set "
+                                    "SYNATLSMOC_DELETE_ALL_TEMPLATES=1 to delete it"));
       return;
     }
 
