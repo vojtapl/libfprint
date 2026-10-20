@@ -3988,6 +3988,77 @@ synatlsmoc_open (FpDevice *device)
   return;
 }
 
+/* TLS close_notify ======================================================= */
+/* Close the TLS session cleanly when the device is closed. Without this the
+ * sensor keeps its side of the session alive after the host process has gone,
+ * so the next open finds "Sensor is in TLS session but host is not", has to
+ * force-close it with a plaintext get_version (status 0x315) and then usually
+ * runs into a get_version timeout plus USB reset: 5-10 s before the sensor
+ * accepts a finger, on every fprintd start. Best effort: any failure here just
+ * drops the host session, which is what happened before anyway. */
+static void
+recv_tls_close_notify (FpDevice *device, guchar *buffer_in, gsize length_in, GError *error)
+{
+#ifdef DEBUG
+  fp_dbg ("Receive TLS close_notify callback");
+#endif
+  FpiDeviceSynaTlsMoc *self = FPI_DEVICE_SYNATLSMOC (device);
+
+  if (error != NULL)
+    {
+      fp_warn ("TLS close_notify: no valid response (%s), dropping session", error->message);
+      g_clear_error (&error);
+    }
+  else if (buffer_in != NULL && length_in > 0)
+    {
+      /* The sensor answers with an encrypted alert record (observed: fatal
+       * "illegal parameter") and ends its session either way, so do not feed
+       * the reply to the TLS layer, which would report the alert as an error. */
+#ifdef DEBUG
+      fp_dbg ("TLS close_notify: sensor replied with record type 0x%02x (%s)",
+              buffer_in[0], buffer_in[0] == 0x15 ? "alert" : "other");
+#endif
+    }
+
+  synatlsmoc_drop_session (self);
+  fpi_ssm_next_state (self->task_ssm);
+}
+
+static void
+send_tls_close_notify (FpiDeviceSynaTlsMoc *self)
+{
+  const guint expected_recv_size = 256;
+  GError *error = NULL;
+  g_autofree guint8 *tls_data = NULL;
+  gsize tls_data_len = 0;
+
+  if (!tls_session_close (self->session, &error) ||
+      !tls_session_flush_send_buffer (self->session, &tls_data, &tls_data_len, &error))
+    {
+      fp_warn ("TLS close_notify: could not build alert (%s), dropping session", error->message);
+      g_clear_error (&error);
+      synatlsmoc_drop_session (self);
+      fpi_ssm_next_state (self->task_ssm);
+      return;
+    }
+
+  FpiByteWriter writer;
+  gboolean written = TRUE;
+
+  fpi_byte_writer_init (&writer);
+  written &= fpi_byte_writer_put_uint8 (&writer, VCSFW_CMD_TLS_DATA);
+  written &= fpi_byte_writer_fill (&writer, 0, 3);
+  written &= fpi_byte_writer_put_data (&writer, tls_data, tls_data_len);
+
+  FAIL_TASK_SSM_AND_RETURN_IF_NOT_WRITTEN (written);
+
+  gsize send_size = fpi_byte_writer_get_pos (&writer);
+  g_autofree guint8 *send_data = fpi_byte_writer_reset_and_get_data (&writer);
+
+  synatlsmoc_exec_cmd (self, TRUE, FALSE, send_data, send_size,
+                       expected_recv_size, recv_tls_close_notify);
+}
+
 static void
 synatlsmoc_close_ssm_done (FpiSsm *ssm, FpDevice *device, GError *error)
 {
@@ -4021,6 +4092,17 @@ synatlsmoc_close_ssm_run_state (FpiSsm *ssm, FpDevice *device)
           return;
         }
       send_event_config (self, NO_EVENTS);
+      break;
+    case CLOSE_TLS_CLOSE_NOTIFY:
+      /* Sent even when the session is out of sync: if the sensor cannot
+       * decrypt the alert it stays in its session, which is what happened
+       * before anyway, and the next open force-closes it. */
+      if (self->session == NULL || !tls_session_is_established (self->session))
+        {
+          fpi_ssm_next_state (ssm);
+          return;
+        }
+      send_tls_close_notify (self);
       break;
     }
 }
